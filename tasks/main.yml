@@ -1,20 +1,40 @@
 ---
-- name: Download makemine tarball
-  get_url:
-    url: https://github.com/natemarks/makemine/releases/download/v{{ version }}/makemine_{{ version }}_linux_amd64.tar.gz
-    dest: ~/makemine_{{ version }}_linux_amd64.tar.gz
-    checksum: sha1:{{ sha256 }}
-    mode: '0644'
+- name: Create installation config file
+  ansible.builtin.template:
+    src: templates/code42.deployment.properties
+    dest: '/tmp/code42.deployment.properties'
+    mode: '0664'
 
-- name: Extract /tmp/makemine_{{ version }}_linux_amd64.tar.gz in /tmp
-  ansible.builtin.unarchive:
-    src: "{{ ansible_env.HOME }}/makemine_{{ version }}_linux_amd64.tar.gz"
-    dest: "{{ ansible_env.HOME }}"
-
-- name: Copy makemine to /usr/local/bin
-  become: yes
-  ansible.builtin.copy:
-    src: "{{ ansible_env.HOME }}/makemine"
-    dest: /usr/local/bin/makemine
+- name: Create code42 extract directory
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
     mode: '0755'
-  
+  loop:
+    - '{{ download }}'
+    - '{{ extract }}'
+
+- name: Download code42 package
+  become: no
+  command: aws s3 cp {{ s3_uri }} {{ extract }} --quiet
+  environment:
+    AWS_ACCESS_KEY_ID: '{{ aws_access_key_id }}'
+    AWS_SECRET_ACCESS_KEY: '{{ aws_secret_access_key }}'
+  register: c42dl
+  args:
+    creates: '{{ extract }}/{{ installer }}'
+
+- name: Download output
+  debug:
+    msg: 'code42 bucket: {{ c42dl.stdout }}'
+
+- name: check code42 install dir
+  stat:
+    path: /opt/code42-aat
+  register: code42_installed
+
+- name: Install code42 package
+  become: yes
+  when: not code42_installed.stat.exists
+  apt:
+    deb: '{{ extract }}/{{ installer }}'
